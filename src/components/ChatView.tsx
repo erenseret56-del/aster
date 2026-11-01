@@ -1238,6 +1238,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           // container query never matches the container itself, so the row
           // that has to wrap is the child below, not this element.
           "@container/chathead px-5 py-3",
+          // A container is its own stacking context: lift it so the thread
+          // picker and other header popovers paint over the companion below.
+          "relative z-20",
           // Room for the drawer button, which overlays this corner below md.
           "pl-11 md:pl-5",
         )}

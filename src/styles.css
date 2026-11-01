@@ -1833,11 +1833,11 @@ button:disabled.bg-danger {
   :is(.bg-raised, .bg-raised-hover, .bg-inset, .bg-control, .bg-card,
     /* and their opacity-modifier forms (bg-control/60); a leading space or
        start-of-string keeps hover:bg-…/… out */
-    [class^="bg-raised/"], [class*=" bg-raised/"], [class^="bg-raised-hover/"], [class*=" bg-raised-hover/"], [class^="bg-inset/"], [class*=" bg-inset/"], [class^="bg-control/"], [class*=" bg-control/"], [class^="bg-card/"], [class*=" bg-card/"]):not([data-model-picker-content], [data-model-picker-content] *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *) {
+    [class^="bg-raised/"], [class*=" bg-raised/"], [class^="bg-raised-hover/"], [class*=" bg-raised-hover/"], [class^="bg-inset/"], [class*=" bg-inset/"], [class^="bg-control/"], [class*=" bg-control/"], [class^="bg-card/"], [class*=" bg-card/"]):not([data-model-picker-content], [data-model-picker-content] *, [data-glass-popover], [data-glass-popover] *, [role="dialog"], [role="dialog"] *, [role="menu"], [role="menu"] *) {
   background-color: color-mix(in oklab, var(--color-ink) 9%, transparent);
 }
 :is(.glass-rail, .glass-sidebar, .glass-toolbar, .glass-composer)
-  :is([class~="hover:bg-raised"], [class~="hover:bg-raised-hover"], [class~="hover:bg-control"]):not([data-model-picker-content] *, [role="dialog"] *, [role="menu"] *):hover {
+  :is([class~="hover:bg-raised"], [class~="hover:bg-raised-hover"], [class~="hover:bg-control"]):not([data-model-picker-content] *, [data-glass-popover] *, [role="dialog"] *, [role="menu"] *):hover {
   background-color: color-mix(in oklab, var(--color-ink) 13%, transparent);
 }
 
@@ -2005,6 +2005,16 @@ button:disabled.bg-danger {
 
 [data-model-picker-content] .bg-card {
   background-color: transparent !important;
+}
+
+/* ── Popovers that open out of a glass toolbar or composer (thread picker,
+   slash commands, mentions): they float over the chat and the companion, so
+   they get a near-solid frosted surface instead of the toolbar's 9% wash,
+   which let whatever was behind them show through the text. */
+[data-glass-popover] {
+  background-color: color-mix(in oklab, var(--color-card, var(--color-panel)) 95%, transparent);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
 }
 
 /* Glass UI's utilities are 8–25% white with nothing under them: without a

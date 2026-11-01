@@ -807,6 +807,7 @@ export function Composer({
           <div
             role="listbox"
             aria-label={t("composer.commands.aria")}
+            data-glass-popover
             className={cn("absolute bottom-full left-2 z-20 mb-2 w-80 overflow-hidden rounded-xl border border-hairline/40 bg-raised shadow-lg", commandMotion.className)} {...commandMotion.exitProps}
           >
             <div className="border-b border-hairline/20 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">
@@ -848,6 +849,7 @@ export function Composer({
             ref={mentionListRef}
             role="listbox"
             aria-label={t("composer.mention.aria")}
+            data-glass-popover
             className={cn("absolute bottom-full left-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-hairline/40 bg-raised shadow-lg", mentionMotion.className)} {...mentionMotion.exitProps}
           >
             {candidates.map((peer, i) => (
