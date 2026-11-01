@@ -54,6 +54,32 @@ describe("room responder selector", () => {
     (select.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "auto" } });
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "patchGroup", groupId: "room", patch: { defaultResponder: { kind: "auto", fallbackBotId: "theo" } } });
   });
+
+  it("offers Clef, shows it selected on a Clef room, and says what it does once its engine is ready", () => {
+    fixture.config = { decider: { ...jev(false).decider!, clefReady: true } } as ConfigStatus;
+    const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto", engine: "clef" }), members }));
+    expect(markup).toContain('<option value="clef" selected="">Clef</option>');
+    expect(markup).toContain('<option value="auto">Auto</option>');
+    // Jev being off does not matter to a Clef room
+    expect(markup).toContain("Clef picks who answers each plain message");
+  });
+
+  it("names who answers in a Clef room whose engine is not set up", () => {
+    const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto", engine: "clef", fallbackBotId: "theo" }), members }));
+    expect(markup).toContain("Clef&#x27;s engine is not set up, so plain messages go to Theo");
+  });
+
+  it("switching to Clef keeps the lead as its fallback, and back to Auto keeps it too", () => {
+    let tree = DefaultResponderSelect({ group: room({ kind: "member", botId: "theo" }), members });
+    let select = nodes(tree).find((node) => node.type === "select")!;
+    (select.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "clef" } });
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "patchGroup", groupId: "room", patch: { defaultResponder: { kind: "auto", fallbackBotId: "theo", engine: "clef" } } });
+
+    tree = DefaultResponderSelect({ group: room({ kind: "auto", engine: "clef", fallbackBotId: "theo" }), members });
+    select = nodes(tree).find((node) => node.type === "select")!;
+    (select.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "auto" } });
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "patchGroup", groupId: "room", patch: { defaultResponder: { kind: "auto", fallbackBotId: "theo" } } });
+  });
 });
 
 describe("routed-by line", () => {

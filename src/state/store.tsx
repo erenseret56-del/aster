@@ -658,6 +658,12 @@ export interface ConfigStatus {
     jevConfigured?: boolean;
     clefConfigured?: boolean;
     clefAccountId?: string;
+    /** Rooms set to Clef: the engine they ask (absent = the local Ollama
+     * model), whether it is set up, and the local model and its address. */
+    clefEngine?: "ollama" | "clef-flash";
+    clefReady?: boolean;
+    ollamaModel?: string;
+    ollamaUrl?: string;
   };
   /** Shared write-only credential for on-demand GPT Image avatars. */
   imageGen?: {

@@ -53,7 +53,7 @@ import {
   type Attachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
-import { goalCoordinatorForComposer, groupComposerHint, jevRoomRoutingOn, roomRespondersForComposer } from "@/lib/group-routing";
+import { goalCoordinatorForComposer, groupComposerHint, roomRespondersForComposer, roomRoutingOn } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { browserSpeechRecognitionAvailable, useVoiceMode, voiceMode } from "@/lib/voice-mode";
@@ -1179,7 +1179,7 @@ export function Composer({
                     ? t("composer.placeholder.goal", { name: group.name })
                     : t("composer.placeholder.group", {
                         name: group.name,
-                        hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(state.config) }),
+                        hint: groupComposerHint(group, members ?? [], { jevOn: roomRoutingOn(group, state.config) }),
                       })
                   : hero
                     ? "What would you like to do today?"

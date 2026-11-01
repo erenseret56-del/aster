@@ -27,7 +27,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible } from "@/lib/room-activity";
 import { StatusActivityRow } from "@/components/StatusActivityRow";
-import { defaultResponderName, effectiveDefaultResponder, groupResponseHint, jevRoomRoutingOn } from "@/lib/group-routing";
+import { clefRoomRoutingOn, defaultResponderName, effectiveDefaultResponder, groupResponseHint, isClefRoom, jevRoomRoutingOn, roomRoutingOn } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
@@ -408,26 +408,31 @@ export function RoutedByLine({ routedBy }: { routedBy: NonNullable<Message["rout
 export function DefaultResponderSelect({ group, members }: { group: Group; members: Bot[] }) {
   const { state, dispatch } = useStore();
   const jevOn = jevRoomRoutingOn(state.config);
+  const clefOn = clefRoomRoutingOn(state.config);
   const responder = effectiveDefaultResponder(group, members);
-  const value = responder.kind === "member" ? `member:${responder.botId}` : responder.kind;
+  const clef = isClefRoom(responder);
+  const value = responder.kind === "member" ? `member:${responder.botId}` : clef ? "clef" : responder.kind;
   const lead = responder.kind === "member" ? members.find((member) => member.id === responder.botId) : undefined;
+  const fallbackName = defaultResponderName(group, members) ?? t("room.responder.leadFallback");
   const title =
     responder.kind === "everyone"
       ? t("room.responder.everyone")
       : responder.kind === "mentions"
         ? t("room.responder.mentions")
         : responder.kind === "auto"
-          ? jevOn
-            ? t("room.responder.auto")
-            : t("room.responder.autoOff", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })
+          ? clef
+            ? clefOn ? t("room.responder.clef") : t("room.responder.clefOff", { name: fallbackName })
+            : jevOn ? t("room.responder.auto") : t("room.responder.autoOff", { name: fallbackName })
           : t("room.responder.lead", { name: lead?.name ?? t("room.responder.leadFallback") });
 
   const change = (nextValue: string) => {
     let next: GroupDefaultResponder;
+    // The lead (or fallback) a room had stays on as Auto's or Clef's fallback.
+    const fallback = responder.kind === "member" ? responder.botId : responder.kind === "auto" ? responder.fallbackBotId : undefined;
     if (nextValue === "everyone") next = { kind: "everyone" };
     else if (nextValue === "mentions") next = { kind: "mentions" };
-    // The lead a room had stays on as Auto's fallback.
-    else if (nextValue === "auto") next = responder.kind === "member" ? { kind: "auto", fallbackBotId: responder.botId } : { kind: "auto" };
+    else if (nextValue === "auto") next = fallback ? { kind: "auto", fallbackBotId: fallback } : { kind: "auto" };
+    else if (nextValue === "clef") next = fallback ? { kind: "auto", fallbackBotId: fallback, engine: "clef" } : { kind: "auto", engine: "clef" };
     else next = { kind: "member", botId: nextValue.slice("member:".length) };
     dispatch({ type: "patchGroup", groupId: group.id, patch: { defaultResponder: next } });
   };
@@ -449,6 +454,7 @@ export function DefaultResponderSelect({ group, members }: { group: Group; membe
         </optgroup>
         <optgroup label={t("room.responder.groupBehavior")}>
           <option value="auto">{jevOn ? t("room.responder.autoOption") : t("room.responder.autoOptionOff")}</option>
+          <option value="clef">{t("room.responder.clefOption")}</option>
           <option value="everyone">{t("room.responder.everyoneOption")}</option>
           <option value="mentions">{t("room.responder.mentionsOption")}</option>
         </optgroup>
@@ -587,10 +593,10 @@ type RoomSetupFields = {
   setupSkippedAt?: number | string | null;
 };
 
-type RoomResponderMode = "lead" | "everyone" | "mentions" | "auto";
+type RoomResponderMode = "lead" | "everyone" | "mentions" | "auto" | "clef";
 
 function setupResponderMode(responder: GroupDefaultResponder): RoomResponderMode {
-  return responder.kind === "member" ? "lead" : responder.kind;
+  return responder.kind === "member" ? "lead" : isClefRoom(responder) ? "clef" : responder.kind;
 }
 
 function roomNeedsSetup(group: Group): boolean {
@@ -618,6 +624,7 @@ function roomNeedsSetup(group: Group): boolean {
 function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
   const { state, dispatch } = useStore();
   const jevOn = jevRoomRoutingOn(state.config);
+  const clefOn = clefRoomRoutingOn(state.config);
   const [folder, setFolder] = useState(group.cwd ?? "");
   const [behavior, setBehavior] = useState<RoomResponderMode>(setupResponderMode(group.defaultResponder));
   const [leadId, setLeadId] = useState(
@@ -652,8 +659,9 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
   const responder = (): GroupDefaultResponder => {
     if (behavior === "everyone") return { kind: "everyone" };
     if (behavior === "mentions") return { kind: "mentions" };
-    // The lead picked above stays on as Auto's fallback.
+    // The lead picked above stays on as Auto's or Clef's fallback.
     if (behavior === "auto") return members.some((member) => member.id === leadId) ? { kind: "auto", fallbackBotId: leadId } : { kind: "auto" };
+    if (behavior === "clef") return members.some((member) => member.id === leadId) ? { kind: "auto", fallbackBotId: leadId, engine: "clef" } : { kind: "auto", engine: "clef" };
     return members.some((member) => member.id === leadId)
       ? { kind: "member", botId: leadId }
       : group.defaultResponder;
@@ -777,6 +785,38 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
               </span>
               <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">
                 {jevOn ? t("room.setup.autoDetail") : t("room.setup.autoDetailOff")}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="radio"
+              aria-checked={behavior === "clef"}
+              onClick={() => {
+                setBehavior("clef");
+                setLeadPickerOpen(false);
+              }}
+              disabled={saving}
+              className={cn(
+                "flex min-h-[72px] w-full cursor-pointer flex-col items-start justify-between rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-not-allowed disabled:opacity-50",
+                behavior === "clef"
+                  ? "border-accent bg-accent/10 text-ink ring-1 ring-accent/30"
+                  : "border-hairline/50 bg-inset text-ink-secondary hover:border-hairline hover:bg-raised",
+              )}
+            >
+              <span className="flex items-center gap-2 text-[13px] font-semibold">
+                <span
+                  className={cn(
+                    "flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    behavior === "clef" ? "border-accent bg-accent" : "border-ink-secondary/60",
+                  )}
+                >
+                  {behavior === "clef" && <span className="size-1.5 rounded-full bg-white" />}
+                </span>
+                {t("room.responder.clefOption")}
+              </span>
+              <span className="ml-6 mt-2 text-[11.5px] text-ink-secondary">
+                {clefOn ? t("room.setup.clefDetail") : t("room.setup.clefDetailOff")}
               </span>
             </button>
 
@@ -1311,17 +1351,17 @@ export function GroupView({ group }: { group: Group }) {
 
       {findOpen && <ChatFindBar threadId={group.threadId} onClose={() => setFindOpen(false)} />}
 
-      {/* An Auto room answers like lead mode while the decision model is off: say so, once. */}
-      {!setupPending && !group.dm && !remoteClient && state.config && group.defaultResponder.kind === "auto" && !jevRoomRoutingOn(state.config) && (
+      {/* An Auto or Clef room answers like lead mode while its engine is off: say so, once. */}
+      {!setupPending && !group.dm && !remoteClient && state.config && group.defaultResponder.kind === "auto" && !roomRoutingOn(group, state.config) && (
         <div className="w-full px-5">
-          <p data-testid="room-jev-off" className="mb-1 px-2 text-[12px] text-ink-secondary">
-            {t("room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}{" "}
+          <p data-testid={isClefRoom(group.defaultResponder) ? "room-clef-off" : "room-jev-off"} className="mb-1 px-2 text-[12px] text-ink-secondary">
+            {t(isClefRoom(group.defaultResponder) ? "room.responder.clefOffHint" : "room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}{" "}
             <button
               type="button"
               onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "decisionModel" })}
               className="cursor-pointer text-accent hover:underline"
             >
-              {t("room.responder.jevOffOpen")}
+              {t(isClefRoom(group.defaultResponder) ? "room.responder.clefOffOpen" : "room.responder.jevOffOpen")}
             </button>
           </p>
         </div>
@@ -1468,7 +1508,7 @@ export function GroupView({ group }: { group: Group }) {
               </div>
               <div className="text-[17px] font-semibold text-ink">{group.name}</div>
               <div className="max-w-[380px] text-[14px] text-ink-secondary">
-                {groupResponseHint(group, members, { jevOn: jevRoomRoutingOn(state.config) })}
+                {groupResponseHint(group, members, { jevOn: roomRoutingOn(group, state.config) })}
               </div>
             </div>
           )}

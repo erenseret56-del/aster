@@ -2,7 +2,7 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConfigStatus } from "@/state/store";
-import { DecisionModelSettings, deciderFailureText } from "./DecisionModelSettings";
+import { ClefRoomsCard, DecisionModelSettings, deciderFailureText } from "./DecisionModelSettings";
 import { Switch } from "./SettingsPrimitives";
 
 const fixture = vi.hoisted(() => ({
@@ -260,5 +260,83 @@ describe("DecisionModelSettings", () => {
     expect(deciderFailureText({ reason: "overloaded" })).toBe("Jev is overloaded right now. Try again shortly.");
     expect(deciderFailureText({ reason: "http_error", status: 500 })).toBe("Jev returned an unexpected error (HTTP 500).");
     expect(deciderFailureText({ reason: "something-new" })).toBe("The test did not finish. Try again.");
+  });
+});
+
+describe("Clef rooms card", () => {
+  function renderCard() {
+    let tree: ReactNode = null;
+    function Capture() { fixture.index = 0; tree = ClefRoomsCard(); return tree; }
+    const html = renderToStaticMarkup(createElement(Capture));
+    const all = nodes(tree);
+    const byTestId = (id: string) => all.find((node) => node.props["data-testid"] === id)!;
+    return {
+      html,
+      ollama: byTestId("clef-engine-ollama"),
+      clefFlash: byTestId("clef-engine-clef-flash"),
+      url: byTestId("clef-ollama-url"),
+      find: byTestId("clef-ollama-find"),
+      model: byTestId("clef-ollama-model"),
+      save: byTestId("clef-ollama-save"),
+      test: byTestId("clef-rooms-test"),
+      status: byTestId("clef-rooms-status"),
+    };
+  }
+
+  it("defaults to the local model and says what it needs", () => {
+    const card = renderCard();
+    expect(card.ollama.props["aria-checked"]).toBe(true);
+    expect(card.html).toContain("Pick a local model and save it.");
+    expect(card.html).toContain("Room messages stay on this computer or your own network.");
+    expect(card.save.props.disabled).toBe(true);
+    expect(card.test.props.disabled).toBe(true);
+  });
+
+  it("finds the local models, saves the chosen one, then tests it", async () => {
+    fixture.api.mockResolvedValueOnce({ ok: true, url: "http://127.0.0.1:11434", models: ["llama3.2:1b", "qwen3:4b"] });
+    type(renderCard().url, "http://127.0.0.1:11434");
+    click(renderCard().find);
+    await flush();
+    expect(fixture.api).toHaveBeenLastCalledWith(`/api/decider/ollama/models?url=${encodeURIComponent("http://127.0.0.1:11434")}`);
+    expect(renderCard().html).toContain('<option value="qwen3:4b">qwen3:4b</option>');
+    // the first model is chosen until the person picks another
+    type(renderCard().model, "qwen3:4b");
+
+    fixture.api.mockResolvedValueOnce(status({
+      provider: "jev", configured: false, enabled: false, jobs: { roomRouting: true },
+      clefReady: true, ollamaUrl: "http://127.0.0.1:11434", ollamaModel: "qwen3:4b",
+    }));
+    click(renderCard().save);
+    await flush();
+    expect(fixture.api).toHaveBeenLastCalledWith("/api/config", {
+      method: "PUT",
+      body: JSON.stringify({ decider: { ollamaUrl: "http://127.0.0.1:11434", ollamaModel: "qwen3:4b", clefEngine: "ollama" } }),
+    });
+    expect(renderCard().html).toContain("Ready");
+
+    fixture.api.mockResolvedValueOnce({ ok: true, latencyMs: 180 });
+    click(renderCard().test);
+    await flush();
+    expect(fixture.api).toHaveBeenLastCalledWith("/api/decider/test", { method: "POST", body: JSON.stringify({ provider: "ollama" }) });
+    expect(renderCard().html).toContain("The local model answered in 180 ms.");
+  });
+
+  it("says a public address is refused, in its own words", async () => {
+    fixture.api.mockResolvedValueOnce({ ok: false, reason: "not_local" });
+    type(renderCard().url, "https://ollama.example.com");
+    click(renderCard().find);
+    await flush();
+    expect(renderCard().html).toContain("Use an address on this computer or your private network.");
+  });
+
+  it("switches the engine to Clef-Flash, which uses the Cloudflare credentials above", async () => {
+    fixture.api.mockResolvedValueOnce(status({ provider: "jev", configured: false, enabled: false, jobs: { roomRouting: true }, clefEngine: "clef-flash" }));
+    click(renderCard().clefFlash);
+    await flush();
+    expect(fixture.api).toHaveBeenLastCalledWith("/api/config", { method: "PUT", body: JSON.stringify({ decider: { clefEngine: "clef-flash" } }) });
+    const card = renderCard();
+    expect(card.clefFlash.props["aria-checked"]).toBe(true);
+    expect(card.html).toContain("Save a Cloudflare Account ID and API token above.");
+    expect(card.test.props.disabled).toBe(true);
   });
 });

@@ -8,6 +8,22 @@ export function jevRoomRoutingOn(config: ConfigStatus | null | undefined): boole
   return Boolean(config?.decider?.enabled && config.decider.jobs.roomRouting);
 }
 
+/** Whether a room set to Clef asks its engine right now: the engine (a local
+ * Ollama model or Clef-Flash) is set up and the room job is on. Unlike Auto,
+ * the Jev master switch does not gate it; choosing Clef is the opt-in. */
+export function clefRoomRoutingOn(config: ConfigStatus | null | undefined): boolean {
+  return Boolean(config?.decider?.clefReady);
+}
+
+export function isClefRoom(responder: GroupDefaultResponder | undefined): boolean {
+  return responder?.kind === "auto" && responder.engine === "clef";
+}
+
+/** Whether this room's Auto or Clef engine is asking right now. */
+export function roomRoutingOn(group: Pick<Group, "defaultResponder">, config: ConfigStatus | null | undefined): boolean {
+  return isClefRoom(group.defaultResponder) ? clefRoomRoutingOn(config) : jevRoomRoutingOn(config);
+}
+
 /** Be defensive around rooms loaded while an older server is still running,
  * and around a lead removed by another client before the group patch arrives. */
 export function effectiveDefaultResponder(
@@ -17,9 +33,11 @@ export function effectiveDefaultResponder(
   const value = group.defaultResponder;
   if (value?.kind === "everyone" || value?.kind === "mentions") return value;
   if (value?.kind === "member" && members.some((member) => member.id === value.botId)) return value;
-  // Auto keeps its fallback only while that bot is still in the room.
+  // Auto keeps its fallback only while that bot is still in the room, and
+  // its Clef engine always.
   if (value?.kind === "auto") {
-    return value.fallbackBotId && members.some((member) => member.id === value.fallbackBotId) ? value : { kind: "auto" };
+    if (value.fallbackBotId && members.some((member) => member.id === value.fallbackBotId)) return value;
+    return value.engine === "clef" ? { kind: "auto", engine: "clef" } : { kind: "auto" };
   }
   return members[0] ? { kind: "member", botId: members[0].id } : { kind: "mentions" };
 }
@@ -33,14 +51,15 @@ export function defaultResponderName(group: Group, members: Bot[]): string | nul
   return members.find((member) => member.id === value.botId)?.name ?? null;
 }
 
-/** `jevOn`: whether the decision model is on for rooms. An Auto room with it
- * off answers exactly like lead mode, so it reads like lead mode. */
+/** `jevOn`: whether the room's engine is asking (roomRoutingOn: Jev for Auto,
+ * the Clef engine for Clef). With it off the room answers exactly like lead
+ * mode, so it reads like lead mode. */
 export function groupResponseHint(group: Group, members: Bot[], { jevOn = true }: { jevOn?: boolean } = {}): string {
   if (group.dm) return t("room.hint.dm");
   const value = effectiveDefaultResponder(group, members);
   if (value.kind === "everyone") return t("room.hint.everyone");
   if (value.kind === "mentions") return t("room.hint.mentions");
-  if (value.kind === "auto" && jevOn) return t("room.hint.auto");
+  if (value.kind === "auto" && jevOn) return t(value.engine === "clef" ? "room.hint.clef" : "room.hint.auto");
   const name = defaultResponderName(group, members) ?? t("room.hint.leadFallback");
   return t("room.hint.lead", { name });
 }
@@ -50,7 +69,7 @@ export function groupComposerHint(group: Group, members: Bot[], { jevOn = true }
   const value = effectiveDefaultResponder(group, members);
   if (value.kind === "everyone") return t("composer.hint.everyone");
   if (value.kind === "mentions") return t("composer.hint.mentions");
-  if (value.kind === "auto" && jevOn) return t("composer.hint.auto");
+  if (value.kind === "auto" && jevOn) return t(value.engine === "clef" ? "composer.hint.clef" : "composer.hint.auto");
   return t("composer.hint.responder", {
     name: defaultResponderName(group, members) ?? t("composer.hint.lead"),
   });

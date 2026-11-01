@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { setLocale } from "./i18n";
-import { goalCoordinatorForComposer, groupComposerHint, roomRespondersForComposer } from "./group-routing";
-import type { GroupDefaultResponder } from "@/state/store";
+import { effectiveDefaultResponder, goalCoordinatorForComposer, groupComposerHint, groupResponseHint, roomRespondersForComposer, roomRoutingOn } from "./group-routing";
+import type { ConfigStatus, Group, GroupDefaultResponder } from "@/state/store";
 
 describe("roomRespondersForComposer", () => {
   const members = [
@@ -108,5 +108,39 @@ describe("composer hint, in the reader's language", () => {
 
     setLocale("ja");
     expect(groupComposerHint(room({ kind: "everyone" }), members)).toBe("全員が応答します");
+  });
+});
+
+describe("Clef rooms", () => {
+  const members = [{ id: "maya", name: "Maya" }, { id: "theo", name: "Theo" }] as Parameters<typeof groupComposerHint>[1];
+  const room = (defaultResponder: GroupDefaultResponder) => ({ defaultResponder, dm: false }) as Group;
+  const config = (decider: Partial<NonNullable<ConfigStatus["decider"]>>) =>
+    ({ decider: { provider: "jev", configured: false, enabled: false, jobs: { roomRouting: true }, ...decider } }) as ConfigStatus;
+
+  it("keep Clef when their fallback bot has left the room", () => {
+    expect(effectiveDefaultResponder(room({ kind: "auto", engine: "clef", fallbackBotId: "gone" }), members)).toEqual({ kind: "auto", engine: "clef" });
+    expect(effectiveDefaultResponder(room({ kind: "auto", fallbackBotId: "gone" }), members)).toEqual({ kind: "auto" });
+  });
+
+  it("ask the Clef engine, not Jev's switch", () => {
+    const clef = room({ kind: "auto", engine: "clef" });
+    const auto = room({ kind: "auto" });
+    expect(roomRoutingOn(clef, config({ clefReady: true }))).toBe(true);
+    expect(roomRoutingOn(clef, config({ enabled: true, configured: true }))).toBe(false);
+    expect(roomRoutingOn(auto, config({ clefReady: true }))).toBe(false);
+    expect(roomRoutingOn(auto, config({ enabled: true, configured: true }))).toBe(true);
+  });
+
+  it("say Clef picks, or name the lead while its engine is off", () => {
+    const clef = room({ kind: "auto", engine: "clef", fallbackBotId: "theo" });
+    expect(groupComposerHint(clef, members, { jevOn: true })).toBe("Clef picks who responds");
+    expect(groupResponseHint(clef, members, { jevOn: true })).toContain("Clef picks who answers each message");
+    expect(groupComposerHint(clef, members, { jevOn: false })).toContain("Theo");
+  });
+
+  it("let any member be picked, and @mentions still win", () => {
+    const clef = room({ kind: "auto", engine: "clef" });
+    expect(roomRespondersForComposer("who can help?", members, clef).map((member) => member.id)).toEqual(["maya", "theo"]);
+    expect(roomRespondersForComposer("@Theo can you?", members, clef).map((member) => member.id)).toEqual(["theo"]);
   });
 });

@@ -1,5 +1,6 @@
 // Settings → Decision model. Supports both Jev and Cloudflare Clef-Flash
-// providers with independent keys/credentials and selection switches.
+// providers with independent keys/credentials and selection switches, and
+// the engine rooms set to Clef ask: a local Ollama model or Clef-Flash.
 import { useState } from "react";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
@@ -369,6 +370,8 @@ export function DecisionModelSettings() {
         </a>
       </Card>
 
+      <ClefRoomsCard />
+
       {/* Decision Jobs */}
       <Card title={t("decider.jobs.title")}>
         <ul className="flex flex-col">
@@ -397,5 +400,202 @@ export function DecisionModelSettings() {
         </ul>
       </Card>
     </>
+  );
+}
+
+type OllamaModels = { ok: true; url: string; models: string[] } | { ok: false; reason: string };
+
+const OLLAMA_FAILURES: Record<string, LocaleKey> = {
+  not_local: "decider.clefRooms.ollama.error.notLocal",
+  unreachable: "decider.clefRooms.ollama.error.unreachable",
+  malformed: "decider.clefRooms.ollama.error.malformed",
+};
+
+/** The engine rooms set to Clef ask. The local model is the default: room
+ * messages then stay on this computer or the person's own network (the
+ * server refuses public addresses and Ollama's cloud models). */
+export function ClefRoomsCard() {
+  const { state, dispatch } = useStore();
+  const decider = state.config?.decider;
+  const engine = decider?.clefEngine ?? "ollama";
+  const ready = decider?.clefReady === true;
+  const clefConfigured = decider?.clefConfigured === true;
+
+  const [url, setUrl] = useState(decider?.ollamaUrl ?? "");
+  const [model, setModel] = useState(decider?.ollamaModel ?? "");
+  const [models, setModels] = useState<string[] | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const save = async (decision: Record<string, unknown>) => {
+    setSaving(true);
+    setError(null);
+    setVerdict(null);
+    try {
+      dispatch({ type: "configStatus", config: await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ decider: decision }) }) });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const findModels = async () => {
+    setFinding(true);
+    setError(null);
+    setVerdict(null);
+    try {
+      const query = url.trim() ? `?url=${encodeURIComponent(url.trim())}` : "";
+      const listed = await api<OllamaModels>(`/api/decider/ollama/models${query}`);
+      if (!listed.ok) {
+        setModels(null);
+        const key = OLLAMA_FAILURES[listed.reason];
+        setError(key ? t(key) : t("decider.error.other"));
+        return;
+      }
+      setModels(listed.models);
+      if (!listed.models.length) setError(t("decider.clefRooms.ollama.noModels"));
+      else if (!listed.models.includes(model)) setModel(listed.models[0]!);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    setVerdict(null);
+    setError(null);
+    try {
+      const result = await api<TestResult>("/api/decider/test", { method: "POST", body: JSON.stringify({ provider: engine }) });
+      setVerdict(result.ok
+        ? { ok: true, text: t(engine === "ollama" ? "decider.clefRooms.ollama.test.ok" : "decider.clef.test.ok", { ms: String(result.latencyMs) }) }
+        : { ok: false, text: engine === "ollama"
+            ? t(result.reason === "no_key" ? "decider.clefRooms.ollama.error.noModel" : "decider.clefRooms.ollama.error.unreachable")
+            : deciderFailureText(result, false, "clef-flash") });
+    } catch (cause) {
+      setVerdict({ ok: false, text: cause instanceof Error ? cause.message : String(cause) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const savedModel = decider?.ollamaModel ?? "";
+  const savedUrl = decider?.ollamaUrl ?? "";
+  const ollamaDirty = model.trim() !== savedModel || url.trim() !== savedUrl;
+  const choices = models ?? (savedModel ? [savedModel] : []);
+  const engineButton = (value: "ollama" | "clef-flash", label: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={engine === value}
+      data-testid={`clef-engine-${value}`}
+      disabled={saving || !state.config}
+      onClick={() => engine !== value && void save({ clefEngine: value })}
+      className={cn(
+        "flex-1 cursor-pointer rounded-md px-3 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50",
+        engine === value ? "bg-raised font-medium text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+      )}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <Card title={t("decider.clefRooms.title")}>
+      <p className="mb-2 text-[12px] leading-relaxed text-ink-secondary">{t("decider.clefRooms.detail")}</p>
+      <div role="radiogroup" aria-label={t("decider.clefRooms.engine")} className="mb-2 flex gap-1 rounded-lg bg-inset p-1">
+        {engineButton("ollama", t("decider.clefRooms.engine.ollama"))}
+        {engineButton("clef-flash", t("decider.clefRooms.engine.clefFlash"))}
+      </div>
+      <div role="status" className="mb-2 flex items-center gap-2 text-[13px] text-ink-secondary">
+        <span className={cn("size-1.5 rounded-full", ready ? "bg-success" : "bg-raised-hover")} />
+        <span data-testid="clef-rooms-status" className={ready ? "text-success" : undefined}>
+          {ready ? t("decider.clefRooms.ready")
+            : decider?.jobs.roomRouting === false ? t("decider.clefRooms.jobOff")
+              : engine === "ollama" ? t("decider.clefRooms.ollama.notReady") : t("decider.clefRooms.clefFlash.notReady")}
+        </span>
+      </div>
+
+      {engine === "ollama" ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              data-testid="clef-ollama-url"
+              value={url}
+              onChange={(event) => { setVerdict(null); setError(null); setModels(null); setUrl(event.target.value); }}
+              disabled={saving}
+              placeholder="http://127.0.0.1:11434"
+              aria-label={t("decider.clefRooms.ollama.url")}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
+            />
+            <button
+              type="button"
+              data-testid="clef-ollama-find"
+              onClick={() => void findModels()}
+              disabled={finding || saving}
+              className="flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-hairline/40 px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {finding && <Loader2 size={13} className="animate-spin" />}
+              {t("decider.clefRooms.ollama.find")}
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <select
+              data-testid="clef-ollama-model"
+              value={model}
+              onChange={(event) => { setVerdict(null); setModel(event.target.value); }}
+              disabled={saving || !choices.length}
+              aria-label={t("decider.clefRooms.ollama.model")}
+              className="w-full min-w-0 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink focus:outline-none disabled:opacity-50"
+            >
+              {!choices.length && <option value="">{t("decider.clefRooms.ollama.findFirst")}</option>}
+              {choices.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <button
+              type="button"
+              data-testid="clef-ollama-save"
+              onClick={() => void save({ ollamaUrl: url.trim(), ollamaModel: model.trim(), clefEngine: "ollama" })}
+              disabled={saving || !model.trim() || !ollamaDirty}
+              className="flex w-[72px] shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} />{t("common.save")}</>}
+            </button>
+            <button
+              type="button"
+              data-testid="clef-rooms-test"
+              onClick={() => void test()}
+              disabled={testing || saving || !savedModel || ollamaDirty}
+              className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-hairline/40 px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {testing ? t("keys.testing") : t("keys.test")}
+            </button>
+          </div>
+          <p className="text-[11.5px] text-ink-secondary">{t("decider.clefRooms.ollama.private")}</p>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[12px] text-ink-secondary">{t("decider.clefRooms.clefFlash.detail")}</p>
+          <button
+            type="button"
+            data-testid="clef-rooms-test"
+            onClick={() => void test()}
+            disabled={testing || !clefConfigured}
+            className="flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-hairline/40 px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {testing ? t("keys.testing") : t("keys.test")}
+          </button>
+        </div>
+      )}
+      {error && <p role="alert" className="mt-1 text-[12px] text-danger">{error}</p>}
+      {verdict && <p role="status" className={cn("mt-1 text-[12px]", verdict.ok ? "text-success" : "text-danger")}>{verdict.text}</p>}
+    </Card>
   );
 }
