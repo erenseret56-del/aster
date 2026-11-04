@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">ASTER</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1f33" />
+      <stop offset="1" stop-color="#07080d" />
+    </linearGradient>
+    <linearGradient id="star" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9ec5ff" />
+      <stop offset="0.55" stop-color="#7b8cf6" />
+      <stop offset="1" stop-color="#a17bf4" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7b8cf6" stop-opacity="0.45" />
+      <stop offset="1" stop-color="#7b8cf6" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)" />
+  <circle cx="512" cy="512" r="330" fill="url(#glow)" />
+  <g transform="translate(512 512) scale(17) translate(-16 -16)">
+    <path d="M16 1.5c1.1 7.6 6.9 13.4 14.5 14.5-7.6 1.1-13.4 6.9-14.5 14.5C14.9 22.9 9.1 17.1 1.5 16 9.1 14.9 14.9 9.1 16 1.5Z" fill="url(#star)" />
+  </g>
+</svg>

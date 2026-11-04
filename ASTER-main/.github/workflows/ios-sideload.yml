@@ -1,0 +1,58 @@
+name: iOS sideload build
+
+# An unsigned device build of the companion app, packaged as an .ipa for
+# sideloading (Sideloadly / AltStore re-sign it with the tester's own Apple ID,
+# so no signing material lives in the repo). Run by hand from the Actions tab;
+# it is not part of CI and spends one macOS runner for a few minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-sideload
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    name: unsigned iPhone .ipa
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+      - name: Build the device app without signing
+        run: |
+          cd ios
+          xcodebuild \
+            -project OpenMausCompanion.xcodeproj \
+            -scheme OpenMausCompanion \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package the .ipa
+        run: |
+          cd ios
+          app=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)
+          test -n "$app"
+          mkdir -p Payload
+          cp -R "$app" Payload/
+          zip -qry ASTER-unsigned.ipa Payload
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-unsigned-ipa-${{ github.sha }}
+          path: ios/ASTER-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

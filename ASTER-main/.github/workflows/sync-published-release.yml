@@ -1,0 +1,147 @@
+name: Sync published release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published tag to verify (for recovery)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # A workflow-published release emits the same `release` event as a manual
+  # GitHub UI publish. Share the assemble lock so the verification waits
+  # instead of racing identical asset uploads.
+  group: release-mirror-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Verify the published release
+    # Dependency prereleases are not desktop updates. Manual recovery still
+    # reaches the strict stable-tag and artifact checks below.
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && startsWith(github.event.release.tag_name, 'v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download and verify the canonical release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          test -n "$TAG" || { echo "::error::missing release tag"; exit 1; }
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::release tag must be vX.Y.Z, got: $TAG"; exit 1; }
+          version=${TAG#v}
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease --jq 'select(.isDraft == false and .isPrerelease == false) | true' | grep -q true || {
+              echo "::error::$TAG is not a published stable release in $GITHUB_REPOSITORY"; exit 1; }
+          mkdir assets
+          # npm attaches its lowercase tarball independently after publishing;
+          # only the desktop/feed assets are verified here.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets \
+            --pattern '*.yml' --pattern 'ASTER*' --pattern 'SHA256SUMS-ubuntu-x64.txt'
+          required=(
+            latest-linux.yml latest-mac.yml latest.yml
+            "ASTER-$version-amd64.deb"
+            "ASTER-$version-arm64.dmg"
+            "ASTER-$version-arm64.dmg.blockmap"
+            "ASTER-$version-arm64.zip"
+            "ASTER-$version-arm64.zip.blockmap"
+            "ASTER-$version-setup.exe"
+            "ASTER-$version-setup.exe.blockmap"
+            "ASTER-$version-x64.dmg"
+            "ASTER-$version-x64.dmg.blockmap"
+            "ASTER-$version-x64.zip"
+            "ASTER-$version-x64.zip.blockmap"
+            "ASTER-$version-x86_64.AppImage"
+            ASTER-amd64.deb ASTER-intel.dmg ASTER-setup.exe
+            ASTER.AppImage ASTER.dmg SHA256SUMS-ubuntu-x64.txt
+          )
+          for file in "${required[@]}"; do
+            test -s "assets/$file" || { echo "::error::$TAG is missing $file"; exit 1; }
+          done
+          test "$(find assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = "${#required[@]}" || {
+            echo "::error::$TAG has an unexpected release asset set"
+            find assets -maxdepth 1 -type f -print
+            exit 1
+          }
+          (
+            cd assets
+            node --input-type=module - "$version" <<'EOF'
+          import { createHash } from "node:crypto";
+          import { readFileSync, statSync } from "node:fs";
+          const version = process.argv[2];
+          const sha512 = (file) => createHash("sha512").update(readFileSync(file)).digest("base64");
+          const expected = new Map([
+            ["latest-mac.yml", [
+              `ASTER-${version}-x64.zip`,
+              `ASTER-${version}-arm64.zip`,
+              `ASTER-${version}-x64.dmg`,
+              `ASTER-${version}-arm64.dmg`,
+            ]],
+            ["latest.yml", [`ASTER-${version}-setup.exe`]],
+            ["latest-linux.yml", [
+              `ASTER-${version}-x86_64.AppImage`,
+              `ASTER-${version}-amd64.deb`,
+            ]],
+          ]);
+          let bad = 0;
+          for (const [feed, expectedUrls] of expected) {
+            const text = readFileSync(feed, "utf8");
+            const entries = [...text.matchAll(/url:\s+(\S+)[\s\S]*?sha512:\s+(\S+)\n\s+size:\s+(\d+)/g)];
+            const urls = entries.map(([, url]) => url).sort();
+            if (JSON.stringify(urls) !== JSON.stringify([...expectedUrls].sort())) {
+              console.error(`WRONG PATHS in ${feed}: ${urls.join(", ") || "none"}`);
+              bad++;
+              continue;
+            }
+            for (const [, url, hash, size] of entries) {
+              if (sha512(url) !== hash || statSync(url).size !== Number(size)) {
+                console.error(`MISMATCH ${url} in ${feed}`);
+                bad++;
+              } else {
+                console.log(`ok ${url}`);
+              }
+            }
+          }
+          if (bad) process.exit(1);
+          console.log("ok: every updater feed matches the exact staged bytes");
+          EOF
+          )
+          node --input-type=module - "$TAG" <<'EOF'
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          import { readFileSync, readdirSync } from "node:fs";
+          import { join } from "node:path";
+          const tag = process.argv[2];
+          const expected = new Map(readdirSync("assets").map((name) => [
+            name,
+            `sha256:${createHash("sha256").update(readFileSync(join("assets", name))).digest("hex")}`,
+          ]));
+          const inventory = JSON.parse(execFileSync("gh", ["release", "view", tag, "--repo", process.env.GITHUB_REPOSITORY, "--json", "assets"], { encoding: "utf8" })).assets;
+          const npmTarball = `openmausbot-${tag.slice(1)}.tgz`;
+          const remote = inventory.filter((asset) => asset.name !== npmTarball);
+          if (inventory.length - remote.length > 1) throw new Error(`duplicate canonical npm asset: ${npmTarball}`);
+          if (remote.length !== expected.size) throw new Error(`canonical release has ${remote.length} assets but ${expected.size} downloaded`);
+          for (const asset of remote) {
+            if (expected.get(asset.name) !== asset.digest) throw new Error(`canonical digest mismatch for ${asset.name}`);
+          }
+          console.log(`ok: downloaded ${remote.length} canonical assets with matching digests`);
+          EOF
+
+      - name: Refresh the Vercel docs
+        env:
+          DOCS_DEPLOY_HOOK_URL: ${{ secrets.DOCS_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$DOCS_DEPLOY_HOOK_URL" ]; then
+            echo "::notice::DOCS_DEPLOY_HOOK_URL is not configured; the changelog will refresh on the next docs deployment"
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --request POST "$DOCS_DEPLOY_HOOK_URL" > /dev/null
+          echo "requested a docs rebuild"

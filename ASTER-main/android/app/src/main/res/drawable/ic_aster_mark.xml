@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The ASTER mark: the four-point star the desktop draws as AsterMark
+  (src/components/aster/AsterMark.tsx) and this app draws in AsterLook.kt, as a
+  single-colour vector. White on transparent, which is exactly the notification
+  small-icon contract (the system tints it), and tintable anywhere else it is used.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:tint="?attr/colorControlNormal"
+    android:autoMirrored="false"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,1.5c1.1,7.6 6.9,13.4 14.5,14.5 -7.6,1.1 -13.4,6.9 -14.5,14.5C14.9,22.9 9.1,17.1 1.5,16 9.1,14.9 14.9,9.1 16,1.5Z" />
+</vector>

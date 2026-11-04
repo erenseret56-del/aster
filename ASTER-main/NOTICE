@@ -1,0 +1,39 @@
+OpenMausBot
+Copyright 2026 Milind Soni and OpenMausBot contributors
+
+OpenMausBot was relicensed from the MIT License to the Apache License,
+Version 2.0, with the consent of all contributors whose copyright was
+incorporated before the transition.
+
+The Google Antigravity ACP integration adapts release, installation, profile,
+authentication, and runtime temporary-folder behavior from T3 Code, Copyright
+2026 T3 Tools Inc., used under the MIT License (third_party/t3-code/LICENSE).
+
+The secure phone credential transport uses @hpke/core and @hpke/common from
+hpke-js, Copyright 2023-2024 Ajitomi Daisuke, used under the MIT License.
+
+Selected provider icon paths are from Simple Icons, used under CC0 1.0.
+The Cohere provider icon path is from Lobe Icons, Copyright 2023 LobeHub,
+used under the MIT License.
+
+The model provider catalog bundles provider and model data from models.dev,
+https://github.com/anomalyco/models.dev, Copyright (c) 2025 models.dev, used
+under the MIT License. Its cache and refresh logic is adapted from OpenCode,
+https://github.com/anomalyco/opencode, Copyright (c) 2025 opencode, used under
+the MIT License. The full license texts are in third_party/models-dev/LICENSE
+and third_party/opencode/LICENSE.
+
+ASTER
+Copyright 2026 ASTER contributors
+
+ASTER is a fork of and derived from OpenMausBot (Copyright 2026 Milind Soni and OpenMausBot contributors).
+
+The liquid glass surfaces in src/styles.css adapt the glass tokens and
+surface recipes of Glin UI, https://github.com/glincker/glinui, Copyright
+(c) 2026 Glincker LLC, used under the MIT License
+(third_party/glinui/LICENSE).
+
+The glass Button, Card and Badge in src/components/glass-ui and the glass
+tokens and utilities they use in src/styles.css are from Glass UI,
+https://github.com/crenspire/glass-ui, Crenspire Technologies, used under the
+MIT License (third_party/glass-ui/NOTICE).
